@@ -1,0 +1,518 @@
+# DATA ANALYSIS AND DATA SCIENCE WITH PYTHON - TASK 2
+# Exploratory Data Analysis (EDA) and Sales Performance Analysis
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+import datetime as dt
+
+# Set display options
+pd.set_option('display.max_columns', None)
+plt.style.use('ggplot')
+
+print("======== PROJECT 1: GENERAL EDA ========")
+
+# 1. DATASET SELECTION
+# We'll use a sample Global Superstore dataset. In a real scenario, you would load this from a file.
+# For demonstration, we'll create a synthetic dataset with similar characteristics
+
+def create_sample_global_superstore():
+    """Create a synthetic Global Superstore dataset for demonstration"""
+    np.random.seed(42)
+    
+    # Generate random data
+    n_rows = 1000
+    regions = ['North America', 'Europe', 'Asia Pacific', 'Africa', 'LATAM']
+    categories = ['Furniture', 'Office Supplies', 'Technology']
+    sub_categories = ['Chairs', 'Tables', 'Phones', 'Storage', 'Appliances', 'Supplies']
+    
+    data = {
+        'Order_ID': [f'OR{i:05d}' for i in range(1, n_rows + 1)],
+        'Product_ID': [f'PR{i:05d}' for i in range(1, n_rows + 1)],
+        'Product_Name': [f'Product {np.random.randint(1, 100)}' for _ in range(n_rows)],
+        'Category': np.random.choice(categories, size=n_rows),
+        'Sub_Category': np.random.choice(sub_categories, size=n_rows),
+        'Region': np.random.choice(regions, size=n_rows),
+        'Sales': np.random.uniform(100, 5000, size=n_rows),
+        'Quantity': np.random.randint(1, 20, size=n_rows),
+        'Discount': np.random.uniform(0, 0.5, size=n_rows),
+        'Profit': np.random.uniform(-1000, 2000, size=n_rows),
+        'Order_Date': [pd.Timestamp('2023-01-01') + pd.Timedelta(days=np.random.randint(0, 365)) for _ in range(n_rows)]
+    }
+    
+    # Introduce some missing values (around 5%)
+    for col in ['Sales', 'Quantity', 'Profit']:
+        mask = np.random.choice([True, False], size=n_rows, p=[0.05, 0.95])
+        data[col] = np.where(mask, np.nan, data[col])
+    
+    # Add some duplicates (around 3%)
+    duplicate_indices = np.random.choice(range(n_rows), size=int(n_rows * 0.03), replace=False)
+    for idx in duplicate_indices:
+        random_idx = np.random.randint(0, n_rows)
+        for col in data:
+            data[col][random_idx] = data[col][idx]
+    
+    # Create DataFrame
+    df = pd.DataFrame(data)
+    
+    # Introduce some outliers in Sales and Profit
+    outlier_indices = np.random.choice(range(n_rows), size=int(n_rows * 0.02), replace=False)
+    df.loc[outlier_indices, 'Sales'] = np.random.uniform(10000, 15000, size=len(outlier_indices))
+    df.loc[outlier_indices, 'Profit'] = np.random.uniform(3000, 5000, size=len(outlier_indices))
+    
+    return df
+
+# Load dataset
+df_global = create_sample_global_superstore()
+print("\nOriginal Dataset Sample:")
+print(df_global.head())
+print("\nDataset Info:")
+print(f"Shape: {df_global.shape}")
+print(f"Columns: {df_global.columns.tolist()}")
+print("\nMissing Values:")
+print(df_global.isnull().sum())
+
+# 2. DATA CLEANING
+
+# 2.1 Handling missing values
+print("\n--- Handling Missing Values ---")
+print("Before cleaning:")
+print(df_global.isnull().sum())
+
+# Fill missing values with appropriate measures
+df_global['Sales'].fillna(df_global['Sales'].median(), inplace=True)
+df_global['Quantity'].fillna(df_global['Quantity'].median(), inplace=True)
+df_global['Profit'].fillna(df_global['Profit'].median(), inplace=True)
+
+print("\nAfter cleaning:")
+print(df_global.isnull().sum())
+
+# 2.2 Removing duplicates
+print("\n--- Removing Duplicates ---")
+duplicate_count = df_global.duplicated().sum()
+print(f"Number of duplicates found: {duplicate_count}")
+df_global.drop_duplicates(inplace=True)
+print(f"Shape after removing duplicates: {df_global.shape}")
+
+# 2.3 Handling outliers using IQR method
+print("\n--- Handling Outliers ---")
+
+def detect_outliers_iqr(df, column):
+    Q1 = df[column].quantile(0.25)
+    Q3 = df[column].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    outliers = df[(df[column] < lower_bound) | (df[column] > upper_bound)]
+    return outliers, lower_bound, upper_bound
+
+# Detect outliers in Sales
+sales_outliers, sales_lb, sales_ub = detect_outliers_iqr(df_global, 'Sales')
+print(f"Sales outliers detected: {len(sales_outliers)}")
+print(f"Sales bounds: Lower={sales_lb:.2f}, Upper={sales_ub:.2f}")
+
+# Detect outliers in Profit
+profit_outliers, profit_lb, profit_ub = detect_outliers_iqr(df_global, 'Profit')
+print(f"Profit outliers detected: {len(profit_outliers)}")
+print(f"Profit bounds: Lower={profit_lb:.2f}, Upper={profit_ub:.2f}")
+
+# Cap the outliers instead of removing them
+df_global['Sales'] = df_global['Sales'].clip(lower=sales_lb, upper=sales_ub)
+df_global['Profit'] = df_global['Profit'].clip(lower=profit_lb, upper=profit_ub)
+
+print("Outliers have been capped to the IQR boundaries")
+
+# 3. STATISTICAL ANALYSIS
+print("\n--- Statistical Analysis ---")
+
+# 3.1 Descriptive statistics
+print("\nDescriptive Statistics:")
+print(df_global[['Sales', 'Quantity', 'Discount', 'Profit']].describe())
+
+# 3.2 Correlations
+print("\nCorrelation Matrix:")
+correlation_matrix = df_global[['Sales', 'Quantity', 'Discount', 'Profit']].corr()
+print(correlation_matrix)
+
+# 4. DATA VISUALIZATION
+
+# Create a figure for visualizations
+plt.figure(figsize=(15, 15))
+
+# 4.1 Histograms for numerical data
+plt.subplot(3, 2, 1)
+sns.histplot(df_global['Sales'], kde=True)
+plt.title('Distribution of Sales')
+
+plt.subplot(3, 2, 2)
+sns.histplot(df_global['Profit'], kde=True)
+plt.title('Distribution of Profit')
+
+# 4.2 Boxplots to identify outliers
+plt.subplot(3, 2, 3)
+sns.boxplot(y=df_global['Sales'])
+plt.title('Boxplot of Sales')
+
+plt.subplot(3, 2, 4)
+sns.boxplot(y=df_global['Profit'])
+plt.title('Boxplot of Profit')
+
+# 4.3 Heatmap for correlations
+plt.subplot(3, 2, 5)
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm')
+plt.title('Correlation Heatmap')
+
+# 4.4 Additional useful visualizations
+plt.subplot(3, 2, 6)
+sns.scatterplot(x='Sales', y='Profit', data=df_global, hue='Category')
+plt.title('Sales vs Profit by Category')
+
+plt.tight_layout()
+plt.savefig('general_eda_visualizations.png')
+plt.close()
+
+print("\nVisualizations saved as 'general_eda_visualizations.png'")
+
+# 5. SUMMARY REPORT
+print("\n--- Summary Report ---")
+print("1. Data Cleaning Summary:")
+print(f"   - Handled missing values in Sales, Quantity, and Profit columns")
+print(f"   - Removed {duplicate_count} duplicate rows")
+print(f"   - Capped {len(sales_outliers)} outliers in Sales and {len(profit_outliers)} outliers in Profit")
+
+print("\n2. Key Statistical Insights:")
+print(f"   - Average Sales: ${df_global['Sales'].mean():.2f}")
+print(f"   - Average Profit: ${df_global['Profit'].mean():.2f}")
+print(f"   - Profit Margin: {(df_global['Profit'].sum() / df_global['Sales'].sum() * 100):.2f}%")
+
+# Calculate top performing categories and regions
+top_categories = df_global.groupby('Category')[['Sales', 'Profit']].sum().sort_values('Profit', ascending=False)
+top_regions = df_global.groupby('Region')[['Sales', 'Profit']].sum().sort_values('Profit', ascending=False)
+
+print("\n3. Top Performing Categories:")
+print(top_categories)
+
+print("\n4. Top Performing Regions:")
+print(top_regions)
+
+print("\n5. Correlations Analysis:")
+print(f"   - Sales and Profit have a correlation of {correlation_matrix.loc['Sales', 'Profit']:.2f}")
+print(f"   - Sales and Quantity have a correlation of {correlation_matrix.loc['Sales', 'Quantity']:.2f}")
+print(f"   - Discount and Profit have a correlation of {correlation_matrix.loc['Discount', 'Profit']:.2f}")
+
+print("\n======== PROJECT 2: SALES PERFORMANCE ANALYSIS ========")
+
+# 1. DATASET SELECTION
+# We'll create a sales dataset similar to what was specified in the task
+
+def create_sales_dataset():
+    """Create a synthetic sales dataset as specified in the project"""
+    np.random.seed(42)
+    
+    n_rows = 1000
+    products = ['Product A', 'Product B', 'Product C', 'Product D', 'Product E']
+    regions = ['North', 'South', 'East', 'West', 'Central']
+    categories = ['Electronics', 'Furniture', 'Clothing', 'Books', 'Home Goods']
+    
+    start_date = pd.Timestamp('2022-01-01')
+    end_date = pd.Timestamp('2023-12-31')
+    days = (end_date - start_date).days
+    
+    data = {
+        'Product': np.random.choice(products, size=n_rows),
+        'Region': np.random.choice(regions, size=n_rows),
+        'Category': np.random.choice(categories, size=n_rows),
+        'Sales': np.random.uniform(100, 2000, size=n_rows),
+        'Profit': np.random.uniform(10, 500, size=n_rows),
+        'Discount': np.random.uniform(0, 0.3, size=n_rows),
+        'Date': [start_date + pd.Timedelta(days=np.random.randint(0, days)) for _ in range(n_rows)]
+    }
+    
+    # Introduce some missing values
+    for col in ['Sales', 'Profit']:
+        mask = np.random.choice([True, False], size=n_rows, p=[0.03, 0.97])
+        data[col] = np.where(mask, np.nan, data[col])
+    
+    # Add some duplicates
+    duplicate_indices = np.random.choice(range(n_rows), size=int(n_rows * 0.02), replace=False)
+    for idx in duplicate_indices:
+        random_idx = np.random.randint(0, n_rows)
+        for col in data:
+            data[col][random_idx] = data[col][idx]
+    
+    # Create seasonal patterns in sales
+    for i in range(n_rows):
+        month = data['Date'][i].month
+        # Increase sales during holiday seasons (November, December)
+        if month in [11, 12]:
+            data['Sales'][i] *= 1.5
+        # Lower sales in slow months (January, February)
+        elif month in [1, 2]:
+            data['Sales'][i] *= 0.8
+    
+    # Create relationship between discount and sales
+    for i in range(n_rows):
+        # Higher discounts generally mean higher sales but lower profit margins
+        data['Sales'][i] *= (1 + data['Discount'][i])
+        data['Profit'][i] *= (1 - data['Discount'][i] * 1.5)
+    
+    return pd.DataFrame(data)
+
+# Load sales dataset
+sales_df = create_sales_dataset()
+print("\nSales Dataset Sample:")
+print(sales_df.head())
+print("\nDataset Info:")
+print(f"Shape: {sales_df.shape}")
+print(f"Columns: {sales_df.columns.tolist()}")
+print("\nMissing Values:")
+print(sales_df.isnull().sum())
+
+# 2. DATA CLEANING
+
+# Check for duplicates
+print("\n--- Checking for Duplicates ---")
+duplicate_count = sales_df.duplicated().sum()
+print(f"Number of duplicates found: {duplicate_count}")
+sales_df.drop_duplicates(inplace=True)
+print(f"Shape after removing duplicates: {sales_df.shape}")
+
+# Handle missing values
+print("\n--- Handling Missing Values ---")
+print("Before cleaning:")
+print(sales_df.isnull().sum())
+
+# Fill missing values with median
+sales_df['Sales'].fillna(sales_df['Sales'].median(), inplace=True)
+sales_df['Profit'].fillna(sales_df['Profit'].median(), inplace=True)
+
+print("\nAfter cleaning:")
+print(sales_df.isnull().sum())
+
+# Ensure Date is datetime
+print("\n--- Converting Date to Datetime ---")
+if not pd.api.types.is_datetime64_any_dtype(sales_df['Date']):
+    sales_df['Date'] = pd.to_datetime(sales_df['Date'])
+    
+# Add useful time-based features
+sales_df['Year'] = sales_df['Date'].dt.year
+sales_df['Month'] = sales_df['Date'].dt.month
+sales_df['Quarter'] = sales_df['Date'].dt.quarter
+print("Date conversion complete and time features added")
+
+# 3. EXPLORATORY DATA ANALYSIS
+
+# Create a figure for visualizations
+plt.figure(figsize=(15, 20))
+
+# 3.1 Time series analysis - Sales over time
+print("\n--- Creating Time Series Analysis ---")
+monthly_sales = sales_df.groupby(pd.Grouper(key='Date', freq='M'))['Sales'].sum().reset_index()
+
+plt.subplot(4, 2, 1)
+plt.plot(monthly_sales['Date'], monthly_sales['Sales'])
+plt.title('Monthly Sales Over Time')
+plt.xlabel('Date')
+plt.ylabel('Total Sales')
+plt.xticks(rotation=45)
+
+# 3.2 Scatter plot - Profit vs Discount
+plt.subplot(4, 2, 2)
+sns.scatterplot(x='Discount', y='Profit', data=sales_df, alpha=0.5)
+plt.title('Profit vs Discount')
+plt.xlabel('Discount')
+plt.ylabel('Profit')
+
+# 3.3 Sales by Region
+region_sales = sales_df.groupby('Region')['Sales'].sum().sort_values(ascending=False).reset_index()
+
+plt.subplot(4, 2, 3)
+sns.barplot(x='Region', y='Sales', data=region_sales)
+plt.title('Total Sales by Region')
+plt.xlabel('Region')
+plt.ylabel('Total Sales')
+plt.xticks(rotation=45)
+
+# 3.4 Sales by Category
+category_sales = sales_df.groupby('Category')['Sales'].sum().sort_values(ascending=False).reset_index()
+
+plt.subplot(4, 2, 4)
+sns.barplot(x='Category', y='Sales', data=category_sales)
+plt.title('Total Sales by Category')
+plt.xlabel('Category')
+plt.ylabel('Total Sales')
+plt.xticks(rotation=45)
+
+# 3.5 Quarterly Sales Comparison
+quarterly_sales = sales_df.groupby(['Year', 'Quarter'])['Sales'].sum().reset_index()
+
+plt.subplot(4, 2, 5)
+sns.barplot(x='Quarter', y='Sales', hue='Year', data=quarterly_sales)
+plt.title('Quarterly Sales Comparison')
+plt.xlabel('Quarter')
+plt.ylabel('Total Sales')
+
+# 3.6 Sales and Profit Distribution
+plt.subplot(4, 2, 6)
+sns.histplot(sales_df['Sales'], kde=True, color='blue', alpha=0.5, label='Sales')
+plt.title('Distribution of Sales')
+plt.xlabel('Sales Amount')
+
+plt.subplot(4, 2, 7)
+sns.histplot(sales_df['Profit'], kde=True, color='green', alpha=0.5, label='Profit')
+plt.title('Distribution of Profit')
+plt.xlabel('Profit Amount')
+
+# 3.7 Boxplot of Sales by Product
+plt.subplot(4, 2, 8)
+sns.boxplot(x='Product', y='Sales', data=sales_df)
+plt.title('Sales Distribution by Product')
+plt.xlabel('Product')
+plt.ylabel('Sales')
+plt.xticks(rotation=45)
+
+plt.tight_layout()
+plt.savefig('sales_performance_visualizations.png')
+plt.close()
+
+print("\nSales performance visualizations saved as 'sales_performance_visualizations.png'")
+
+# 4. PREDICTIVE MODELING
+
+print("\n--- Building Predictive Model ---")
+
+# Prepare data for modeling
+model_data = sales_df[['Sales', 'Profit', 'Discount']].copy()
+
+# Split features and target
+X = model_data[['Profit', 'Discount']]
+y = model_data['Sales']
+
+# Split into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Create and train Linear Regression model
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# Make predictions
+y_pred = model.predict(X_test)
+
+# Evaluate model performance
+mse = mean_squared_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
+
+print("\nLinear Regression Model Results:")
+print(f"Mean Squared Error (MSE): {mse:.2f}")
+print(f"R² Score: {r2:.4f}")
+print(f"Coefficients: Profit={model.coef_[0]:.4f}, Discount={model.coef_[1]:.4f}")
+print(f"Intercept: {model.intercept_:.4f}")
+
+# Visualize actual vs predicted values
+plt.figure(figsize=(10, 6))
+plt.scatter(y_test, y_pred, alpha=0.5)
+plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+plt.xlabel('Actual Sales')
+plt.ylabel('Predicted Sales')
+plt.title('Actual vs Predicted Sales')
+plt.savefig('sales_prediction_model.png')
+plt.close()
+
+print("\nSales prediction model visualization saved as 'sales_prediction_model.png'")
+
+# 5. INSIGHTS AND RECOMMENDATIONS
+
+print("\n--- Key Insights and Recommendations ---")
+
+# Calculate average Sales and Profit by Discount ranges
+discount_analysis = sales_df.copy()
+discount_analysis['Discount_Range'] = pd.cut(
+    discount_analysis['Discount'], 
+    bins=[0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3], 
+    labels=['0-5%', '5-10%', '10-15%', '15-20%', '20-25%', '25-30%']
+)
+
+discount_performance = discount_analysis.groupby('Discount_Range').agg({
+    'Sales': 'mean',
+    'Profit': 'mean',
+    'Product': 'count'
+}).rename(columns={'Product': 'Count'})
+
+print("\nSales and Profit by Discount Range:")
+print(discount_performance)
+
+# Find best performing regions and categories
+region_performance = sales_df.groupby('Region').agg({
+    'Sales': 'sum',
+    'Profit': 'sum'
+}).sort_values('Profit', ascending=False)
+
+category_performance = sales_df.groupby('Category').agg({
+    'Sales': 'sum',
+    'Profit': 'sum'
+}).sort_values('Profit', ascending=False)
+
+print("\nTop Performing Regions:")
+print(region_performance)
+
+print("\nTop Performing Categories:")
+print(category_performance)
+
+# Calculate seasonal trends
+seasonal_trends = sales_df.groupby('Month').agg({
+    'Sales': 'mean',
+    'Profit': 'mean'
+})
+
+print("\nSeasonal Trends (Monthly Average):")
+print(seasonal_trends)
+
+# BUSINESS RECOMMENDATIONS
+
+print("\n=== BUSINESS RECOMMENDATIONS ===")
+
+# Optimal discount strategy
+optimal_discount = discount_performance.sort_values('Profit', ascending=False).index[0]
+print(f"\n1. Discount Strategy:")
+print(f"   The optimal discount range appears to be {optimal_discount}, which maximizes profit")
+print(f"   Higher discounts (>20%) significantly reduce profit margins despite increasing sales volume")
+
+# Regional focus
+top_region = region_performance.index[0]
+print(f"\n2. Regional Focus:")
+print(f"   {top_region} is the top-performing region, contributing the highest profit")
+print(f"   Consider expanding resources and marketing efforts in this region")
+print(f"   The lowest-performing region should be evaluated for improvement strategies")
+
+# Category management
+top_category = category_performance.index[0]
+print(f"\n3. Category Management:")
+print(f"   {top_category} is the most profitable product category")
+print(f"   Consider expanding product lines in this category")
+print(f"   For underperforming categories, evaluate pricing and marketing strategies")
+
+# Seasonal planning
+high_season_months = seasonal_trends['Sales'].sort_values(ascending=False).index[:3].tolist()
+low_season_months = seasonal_trends['Sales'].sort_values().index[:3].tolist()
+
+print(f"\n4. Seasonal Planning:")
+print(f"   Peak sales months: {', '.join([str(m) for m in high_season_months])}")
+print(f"   Low sales months: {', '.join([str(m) for m in low_season_months])}")
+print(f"   Plan inventory and promotions according to these seasonal patterns")
+print(f"   Consider special promotions during slow months to boost sales")
+
+# Sales prediction model
+print(f"\n5. Sales Prediction:")
+print(f"   The predictive model explains {r2*100:.2f}% of the variation in sales")
+print(f"   Use this model to forecast sales based on planned profit margins and discount rates")
+print(f"   According to the model, a 1% increase in discount leads to approximately ${model.coef_[1]*100:.2f} change in sales")
+
+print("\n=== CONCLUSION ===")
+print("This analysis has revealed important patterns in sales performance across regions, product categories, and time periods.")
+print("By optimizing discount strategies, focusing on high-performing regions and categories, and planning for seasonal variations,")
+print("the business can enhance sales performance and maximize profitability.")
+print("\nThe predictive model provides a tool for sales forecasting, enabling more informed decision-making for future planning.")
